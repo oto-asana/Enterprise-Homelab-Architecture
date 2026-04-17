@@ -194,4 +194,4 @@ I deployed a **Dahua NVR (Network Video Recorder)** specifically configured to a
 
 **The Impact:**
 This "Double-NAT" hardware configuration ensures that the cameras have zero direct access to the internet and zero access to the user VLANs. They exist in a completely air-gapped subnet managed solely by the Dahua NVR, ensuring total containment of the surveillance traffic.
-```
+
