@@ -99,3 +99,55 @@ To create a high-performance data backbone, I deployed a dedicated **TrueNAS** v
 
 **The Impact:**
 This architecture completely bypassed the physical I/O limitations of the thin clients. Users can now seamlessly drag and drop massive project files across the network directly into their rendering VMs at full Gigabit LAN speeds, creating a frictionless, centralized storage ecosystem.
+
+
+
+## 🖧 2. Network Segmentation & Security
+
+### 2.1 Zero-Trust Management Isolation
+**The Security Challenge:**
+By default, the Proxmox management interfaces reside on the same broadcast domain as the guest VMs and user endpoints. In an enterprise environment, leaving hypervisor management portals accessible from the production user network introduces a severe security vulnerability and allows for potential lateral movement.
+
+**The Solution (802.1Q VLAN Tagging):**
+To secure the infrastructure, I implemented strict Layer 2 network segmentation. The Proxmox Linux bridges were configured to be **VLAN-aware**, and the physical switch uplinks were configured as **802.1Q Trunks**, allowing multiple virtual networks to traverse a single physical cable. 
+
+**VLAN Topology:**
+* **VLAN 10 (Production/VDI):** `192.168.10.0/24` — Dedicated to the 9 thin clients, VDI internet traffic, and general user access. Gateway routed through the edge router (`192.168.10.1`).
+* **VLAN 20 (Guest Wi-Fi):** Isolated network for untrusted wireless devices.
+* **VLAN 99 (Infrastructure Management):** `192.168.99.0/24` — A highly restricted, non-routable subnet dedicated exclusively to hypervisor and storage management. 
+  * *Host 1 IP:* `192.168.99.11`
+  * *Host 2 IP:* `192.168.99.12`
+
+### 2.2 Overcoming L3 Hardware Constraints with SDN
+**The Routing & DHCP Limitation:**
+While the edge router successfully acted as the gateway for VLAN 10 (`192.168.10.1`), it lacked the capability to serve DHCP scopes across multiple VLAN tags. Furthermore, the core physical switch was constrained to an **L2+ feature set**, meaning it lacked the integrated Layer 3 DHCP server functionality necessary to independently assign IPs to VLAN 99 and future subnets.
+
+**Software-Defined Networking (SDN) Implementation:**
+Instead of procuring expensive Layer 3 routing hardware, I engineered a software-defined solution. 
+
+* Utilized the **Proxmox Datacenter Manager (SDN capabilities)** to deploy a centralized **`dnsmasq`** service.
+* Configured `dnsmasq` to act as the authoritative DHCP server for VLAN 99 (and provisioned it for future VLAN expansions).
+* *Impact:* Successfully established automated IP provisioning for the secure management tier, completely bypassing the physical limitations of the L2+ hardware switch and keeping the infrastructure highly scalable and software-defined.
+
+
+### 2.3 Switch Hardening & Physical Port Security
+**Management Interface Isolation:**
+Following the establishment of the VLAN 99 SDN infrastructure, I locked down the physical switch hardware. The management interfaces (SSH and Web GUI) for the core switches were stripped from the default VLAN 1 and strictly bound to the VLAN 99 subnet. 
+* **Core Switch IP:** `192.168.99.1`
+* **Datacenter Manager (SDN) IP:** `192.168.99.3`
+
+**Physical Port Hardening (Blackhole VLAN):**
+To mitigate physical intrusion risks (such as a bad actor plugging an unauthorized device directly into an open wall port or switch), I implemented strict Layer 2 port security. 
+* Created **VLAN 30 (Unused/Dead VLAN)**—a completely isolated, non-routable network segment.
+* All unused physical switch ports were aggressively assigned to VLAN 30 and administratively disabled (`shutdown` state). This ensures that even if a physical connection is made, no network negotiation can occur.
+
+
+### 3.3 Storage Tiering & Network Access Control
+**The Permissions Challenge:**
+While the primary SMB shares successfully served the VLAN 10 production users, blending administrative files, ISOs, and user rendering data on the same virtualized storage appliance presented a data governance risk. 
+
+**Isolated Management Storage Deployment:**
+To enforce strict Access Control Lists (ACLs) and network separation, I engineered a secondary, high-speed storage tier:
+* **Node 2 Deployment:** Provisioned a secondary storage VM on the second Proxmox host.
+* **NVMe Hardware Backing:** Passed through a dedicated 1TB M.2 SSD to guarantee high-throughput IOPS for administrative tasks.
+* **VLAN 99 Binding:** This secondary SMB share was bound exclusively to the VLAN 99 management subnet. It is completely invisible and inaccessible to the VLAN 10 production endpoints, providing a highly secure, air-gapped storage repository for infrastructure configurations and sensitive data.
