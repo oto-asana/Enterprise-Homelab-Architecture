@@ -64,6 +64,8 @@ echo "options vfio-pci ids=10de:xxxx,10de:xxxx disable_vga=1" > /etc/modprobe.d/
 # Update initramfs to ensure VFIO captures the GPUs before the Nouveau/NVIDIA drivers
 update-initramfs -u -k all
 
+
+
 ### 4.5 OS Optimization & Telemetry Hardening
 
 **The Resource Overhead Challenge:**
@@ -78,3 +80,22 @@ To maximize resource efficiency and guarantee that 99% of compute power was dedi
 
 **The Impact:**
 By meticulously hardening the OS, idle CPU utilization was reduced to near-zero, and baseline RAM consumption was cut by over 50%. This optimization was critical in allowing the 2 centralized Proxmox hosts to comfortably serve 9 high-performance VMs simultaneously without bottlenecking.
+
+
+## 💾 3. Storage Architecture & Network Integration
+
+### 3.1 The Physical I/O Limitation
+**The Challenge:**
+In a fully virtualized "Quasi-VDI" architecture, end-users interface with the system via thin clients. Because the actual compute and operating systems live on remote Proxmox host servers, traditional physical I/O methods (such as inserting a USB flash drive to transfer files) are impossible. A robust, centralized storage solution was required to allow users to move large CAD and rendering files in and out of their virtual machines.
+
+### 3.2 TrueNAS Deployment & Centralized Storage
+**The Solution:**
+To create a high-performance data backbone, I deployed a dedicated **TrueNAS** virtual appliance within the Proxmox environment. This isolated the storage management from the compute nodes and provided a scalable platform for enterprise file sharing.
+
+**Implementation & Configuration:**
+* **ZFS Storage Pool:** Configured the underlying storage utilizing the ZFS file system, ensuring high data integrity, protection against bit-rot, and efficient read/write caching for large rendering files.
+* **SMB (Server Message Block) Provisioning:** Engineered network shares utilizing the SMB protocol. This protocol was specifically selected for its native integration with the optimized Windows 11 VMs.
+* **Network Drive Mapping:** The SMB shares were broadcasted across the secure LAN and automatically mapped as Network Drives within the guest VMs. 
+
+**The Impact:**
+This architecture completely bypassed the physical I/O limitations of the thin clients. Users can now seamlessly drag and drop massive project files across the network directly into their rendering VMs at full Gigabit LAN speeds, creating a frictionless, centralized storage ecosystem.
