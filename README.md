@@ -34,6 +34,39 @@ To connect the 9 thin clients to the resource pools, multiple streaming protocol
   * *Result:* Deployed the open-source **Sunshine** streaming host on the Proxmox VMs, paired with **Moonlight** clients on the 9 USFF endpoints. 
   * *Impact:* Successfully bypassed the Windows 11 30 FPS lock. This protocol leverages direct hardware encoding/decoding, delivering ultra-low latency, 60+ FPS streaming perfectly suited for heavy rendering and gaming, while seamlessly pooling the resources of the 2 master servers.
 
+## 📞 5. Unified Communications (VoIP Infrastructure)
+
+### 5.1 Secure PBX Deployment & SIP Provisioning
+**The Challenge:**
+Deploying IP telephony across a local area network often exposes the PBX (Private Branch Exchange) server to unnecessary broadcast traffic and potential internal threats if left on the default user data VLAN. 
+
+**The Solution (NAT & VLAN Isolation):**
+To secure the voice traffic and manage Quality of Service (QoS), I deployed a physical **CooVox T-100S IP PBX** appliance utilizing a strict NAT boundary architecture.
+
+**Network Topology & Configuration:**
+* **PBX WAN/Uplink:** Configured statically on the secure management tier at `192.168.99.20` (VLAN 99). This isolates the PBX management interface from standard users.
+* **PBX LAN/Voice Subnet:** The appliance was configured to operate as a NAT router for the downstream IP phones, distributing IPs in an isolated `172.16.0.0/24` subnet. 
+* **SIP Provisioning:** Manually generated and assigned static SIP extensions to the physical IP phones across the LAN. Because of the NAT architecture, the phones securely register back to the PBX without their internal `172.16.x.x` traffic bleeding into the main data VLANs.
+
+---
+
+## 📹 6. Surveillance Infrastructure (NVR & IP Cameras)
+
+### 6.1 IoT Air-Gapping & Camera Isolation
+**The Security Challenge:**
+IP cameras are notoriously vulnerable to exploits and unauthorized broadcast scanning. Plugging IP cameras directly into a standard LAN or giving them internet access is a major security risk in any enterprise environment.
+
+**The Solution (Hardware-Level Air-Gapping):**
+I deployed a **Dahua NVR (Network Video Recorder)** specifically configured to act as a security gateway between the cameras and the rest of the infrastructure. 
+
+**Network Topology & Configuration:**
+* **NVR WAN/Uplink:** Bound exclusively to the Management VLAN (`192.168.99.10`). This ensures that only administrators on the secure subnet can access the video feeds or the NVR web interface.
+* **Camera LAN (Internal NAT):** The IP cameras were physically patched into the NVR's downstream switch ports. The NVR was configured to hand out a deeply isolated, non-routable `10.0.0.0/24` subnet (Gateway: `10.0.0.1`) to the cameras. 
+
+**The Impact:**
+This "Double-NAT" hardware configuration ensures that the cameras have zero direct access to the internet and zero access to the user VLANs. They exist in a completely air-gapped subnet managed solely by the Dahua NVR, ensuring total containment of the surveillance traffic.
+
+
 ### 1.3 Advanced IOMMU & GPU Passthrough (VFIO)
 
 **The Hardware Acceleration Requirement:**
