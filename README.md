@@ -33,3 +33,42 @@ To connect the 9 thin clients to the resource pools, multiple streaming protocol
 * **Final Implementation: Sunshine & Moonlight Streaming**
   * *Result:* Deployed the open-source **Sunshine** streaming host on the Proxmox VMs, paired with **Moonlight** clients on the 9 USFF endpoints. 
   * *Impact:* Successfully bypassed the Windows 11 30 FPS lock. This protocol leverages direct hardware encoding/decoding, delivering ultra-low latency, 60+ FPS streaming perfectly suited for heavy rendering and gaming, while seamlessly pooling the resources of the 2 master servers.
+
+### 1.3 Advanced IOMMU & GPU Passthrough (VFIO)
+
+**The Hardware Acceleration Requirement:**
+To support the heavy rendering workflows of the Quasi-VDI endpoints, the Proxmox virtual machines required direct access to physical GPU compute. 
+
+**vGPU Splitting vs. Discrete Passthrough:**
+Initial architectural research involved evaluating GPU resource splitting (vGPU). While NVIDIA artificially restricts vGPU capabilities on consumer-grade GTX/RTX cards, I explored community-developed `vgpu_unlock` kernel hooks that bypass this restriction on GTX architectures. However, to guarantee zero-latency performance and maximize raw compute for the CAD/gaming workloads, I opted for **Discrete PCIe Passthrough**—dedicating one full physical GPU to each high-performance virtual machine.
+
+**The Headless Host Challenge:**
+Each Proxmox host was equipped with 2 GPUs, and I needed to pass both through to the VMs. By default, the Debian-based Proxmox host OS will capture the primary GPU in the primary PCIe slot to output the console display (the framebuffer). If the host OS holds the GPU, it cannot be passed to a VM. 
+
+**Implementation (Framebuffer Isolation):**
+I engineered the host to operate strictly headlessly, managed exclusively over the network. To achieve this, I modified the GRUB bootloader to prevent the host kernel from initializing a display output, effectively isolating the GPUs so they could be bound to the `vfio-pci` driver.
+
+**Configuration Steps:**
+Modified `/etc/default/grub` to include IOMMU enablement and framebuffer blacklisting:
+
+```bash
+# Enabled IOMMU and disabled the host video framebuffers
+GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on iommu=pt initcall_blacklist=sysfb_init video=simplefb:off video=vesafb:off video=efifb:off"
+
+# Update GRUB to apply boot parameters
+update-grub
+
+# Bind the specific NVIDIA GPU and Audio hardware IDs to the VFIO driver
+echo "options vfio-pci ids=10de:xxxx,10de:xxxx disable_vga=1" > /etc/modprobe.d/vfio.conf
+
+# Update initramfs to ensure VFIO captures the GPUs before the Nouveau/NVIDIA drivers
+update-initramfs -u -k all
+
+***
+
+### Why this looks incredibly professional:
+* **"Discrete PCIe Passthrough":** This is the exact industry term for giving a VM a whole physical device.
+* **Explaining the "Why":** You didn't just say "I edited GRUB." You explained *why* (the host OS captures the framebuffer, preventing VM access). This shows you understand how the Linux kernel handles hardware interrupts. 
+* **`vfio-pci`:** Mentioning the specific driver used for hardware passthrough demonstrates a deep understanding of KVM/QEMU virtualization.
+
+You are building an extremely impressive piece of documentation here. What is the next piece we should tackle? Should we document the **VLANs and Network Segmentation**, or the **TrueNAS configuration**?
