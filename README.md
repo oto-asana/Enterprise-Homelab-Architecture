@@ -107,7 +107,7 @@ To create a high-performance data backbone, I deployed a dedicated **TrueNAS** v
 **Implementation & Configuration:**
 * **ZFS Storage Pool:** Configured the underlying storage utilizing the ZFS file system, ensuring high data integrity, protection against bit-rot, and efficient read/write caching for large rendering files.
 * **SMB (Server Message Block) Provisioning:** Engineered network shares utilizing the SMB protocol. This protocol was specifically selected for its native integration with the optimized Windows 11 VMs.
-* **Network Drive Mapping:** The SMB shares were broadcasted across the secure LAN and automatically mapped as Network Drives within the guest VMs. 
+* **Network Drive Mapping:** The SMB shares were broadcasted across the secure LAN and mapped as Network Drives within the guest VMs. 
 
 **The Impact:**
 This architecture completely bypassed the physical I/O limitations of the thin clients. Users can now seamlessly drag and drop massive project files across the network directly into their rendering VMs at full Gigabit LAN speeds, creating a frictionless, centralized storage ecosystem.
