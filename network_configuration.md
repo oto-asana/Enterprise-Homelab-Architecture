@@ -100,6 +100,3 @@ To ensure the 802.1Q tags successfully pass from the Proxmox host into the physi
 * **Proxmox Host Uplink Ports:** Must be configured as **Trunk Ports** (Tagged). This allows the switch to read and transport traffic from all VMs, regardless of which VLAN (10, 20, 99) they are assigned to in the Proxmox GUI.
 * **Datacenter Manager (SDN) Port:** * *Current Setup:* Can be configured as an **Access Port** (Untagged) bound to VLAN 99, because it currently only distributes IPs to the management network.
   * *Future Scaling:* If `dnsmasq` is expanded to serve DHCP to VLAN 10 and VLAN 20, this port must be converted to a **Trunk Port** so the DHCP broadcast packets can traverse multiple subnets.
-```
-
-***
