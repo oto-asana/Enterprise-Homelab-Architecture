@@ -1,6 +1,3 @@
-***
-
-```markdown
 # 🖧 Core Network & SDN Configurations
 
 This document contains the raw network configuration files for the Proxmox hypervisor nodes, the Datacenter Manager (SDN), and the physical switch topology. 
