@@ -19,7 +19,7 @@ An intensive enterprise infrastructure simulation designed to demonstrate advanc
 6. [Surveillance Infrastructure (NVR & IP Cameras)](#surveillance)
 
 ---
-
+<a id="hypervisor"></a>
 ## 🏗️ 1. Hypervisor Environment (Proxmox VE)
 
 ### 1.1 Advanced IOMMU & GPU Passthrough (VFIO)
@@ -54,7 +54,7 @@ update-initramfs -u -k all
 ```
 
 ---
-
+<a id="network"></a>
 ## 🖧 2. Network Segmentation & Security
 
 ### 2.1 Zero-Trust Management Isolation
@@ -93,7 +93,7 @@ To mitigate physical intrusion risks (such as a bad actor plugging an unauthoriz
 * All unused physical switch ports were aggressively assigned to VLAN 30 and administratively disabled (`shutdown` state). This ensures that even if a physical connection is made, no network negotiation can occur.
 
 ---
-
+<a id="storage"></a>
 ## 💾 3. Storage Architecture & Network Integration
 
 ### 3.1 The Physical I/O Limitation
@@ -123,7 +123,7 @@ To enforce strict Access Control Lists (ACLs) and network separation, I engineer
 * **VLAN 99 Binding:** This secondary SMB share was bound exclusively to the VLAN 99 management subnet. It is completely invisible and inaccessible to the VLAN 10 production endpoints, providing a highly secure, air-gapped storage repository for infrastructure configurations and sensitive data.
 
 ---
-
+<a id="vdi"></a>
 ## 🖥️ 4. High-Performance "Quasi-VDI" Architecture
 
 ### 4.1 The Engineering Challenge
@@ -162,7 +162,7 @@ To maximize resource efficiency and guarantee that 99% of compute power was dedi
 By meticulously hardening the OS, idle CPU utilization was reduced to near-zero, and baseline RAM consumption was cut by over 50%. This optimization was critical in allowing the 2 centralized Proxmox hosts to comfortably serve 9 high-performance VMs simultaneously without bottlenecking.
 
 ---
-
+<a id="voip"></a>
 ## 📞 5. Unified Communications (VoIP Infrastructure)
 
 ### 5.1 Secure PBX Deployment & SIP Provisioning
@@ -178,7 +178,7 @@ To secure the voice traffic and manage Quality of Service (QoS), I deployed a ph
 * **SIP Provisioning:** Manually generated and assigned static SIP extensions to the physical IP phones across the LAN. Because of the NAT architecture, the phones securely register back to the PBX without their internal `172.16.x.x` traffic bleeding into the main data VLANs.
 
 ---
-
+<a id="surveillance"></a>
 ## 📹 6. Surveillance Infrastructure (NVR & IP Cameras)
 
 ### 6.1 IoT Air-Gapping & Camera Isolation
