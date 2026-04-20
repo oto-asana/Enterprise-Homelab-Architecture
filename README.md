@@ -1,5 +1,5 @@
 # Enterprise Infrastructure & Virtualization Simulation
-
+![HELLO](infrastructure.drawio.png)
 ## 📌 Project Overview
 An intensive enterprise infrastructure simulation designed to demonstrate advanced networking, systems administration, and virtualization capabilities. Architected and deployed entirely from scratch, this lab serves as a practical showcase of expertise in deploying and managing high-performance Proxmox VE environments, TrueNAS storage architectures, and secure Layer 2 network segmentation.
 
