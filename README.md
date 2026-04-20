@@ -51,147 +51,224 @@ echo "options vfio-pci ids=10de:xxxx,10de:xxxx disable_vga=1" > /etc/modprobe.d/
 
 # Update initramfs to ensure VFIO captures the GPUs before the Nouveau/NVIDIA drivers
 update-initramfs -u -k all
-```
+````
 
----
+### 1.2 Dual-Socket NUMA Node Optimization
+
+**The Hardware Latency Challenge:**
+The host hypervisors were powered by **Dual Intel Xeon E5-2699 v3** processors. In dual-socket motherboards, RAM is physically split across the two CPUs. If a virtual machine running a heavily single-threaded application (like Autodesk Revit) attempts to access memory wired to the opposite CPU, it incurs a massive cross-socket latency penalty.
+
+**Implementation (CPU & Memory Pinning):**
+To guarantee zero-latency memory access for the high-performance VDI instances, I manually mapped the PCIe devices to their corresponding physical CPUs and pinned the VM configurations.
+
+  * Executed `cat /sys/bus/pci/devices/[Device_ID]/numa_node` to trace the physical hardware wiring of the GPUs.
+  * Modified the Proxmox VM configuration file (`/etc/pve/qemu-server/[VM-ID].conf`) to restrict the VM strictly to a single physical processor and its local memory bank:
+    ```text
+    numa: 0,cpus=0-15,hostnodes=0,memory=32768
+    ```
+
+**Impact:** Eliminated hypervisor scheduling overhead and cross-socket memory latency, drastically increasing CAD rendering speeds.
+
+### 1.3 Windows 11 VirtIO Provisioning & TPM Bypasses
+
+Deploying Windows 11 on a fully open-source KVM/QEMU hypervisor requires strict hardware emulation. I configured the VMs utilizing the **Q35 machine type**, injected **OVMF (UEFI)** BIOS, and attached virtual **TPM storage** to bypass Microsoft's strict hardware requirements.
+
+**Driver Injection:** Because standard Windows ISOs lack VirtIO drivers, a secondary virtual CD-ROM was attached during deployment to inject the Red Hat `vioscsi` (Storage Controller), `NetKVM` (Network), and `VirtBalloon` (Memory Management) drivers directly into the Windows 11 kernel during the installation sequence.
+
+### 1.4 Proxmox API Maintenance & "Ghosting" Resolution
+
+**Issue:** Encountered the Proxmox "Ghosting" bug, where virtual machines fail to clear from the Datacenter GUI following a deletion due to storage timeouts.
+
+**Resolution Protocol:** Engineered a standardized troubleshooting path without rebooting the host or interrupting production VMs:
+
+1.  Restarted the management web API services: `systemctl restart pveproxy` and `pvestatd`.
+2.  Interfaced directly with the Proxmox clustered file system (`/etc/pve/qemu-server/`) to manually identify and purge orphaned `.conf` files.
+3.  Cleared API deadlocks by forcing tasks to stop via the cluster Task History daemon.
+
+-----
+
 <a id="network"></a>
+
 ## 🖧 2. Network Segmentation & Security
 
 ### 2.1 Zero-Trust Management Isolation
+
 **The Security Challenge:**
 By default, the Proxmox management interfaces reside on the same broadcast domain as the guest VMs and user endpoints. In an enterprise environment, leaving hypervisor management portals accessible from the production user network introduces a severe security vulnerability and allows for potential lateral movement.
 
 **The Solution (802.1Q VLAN Tagging):**
-To secure the infrastructure, I implemented strict Layer 2 network segmentation. The Proxmox Linux bridges were configured to be **VLAN-aware**, and the physical switch uplinks were configured as **802.1Q Trunks**, allowing multiple virtual networks to traverse a single physical cable. 
+To secure the infrastructure, I implemented strict Layer 2 network segmentation. The Proxmox Linux bridges were configured to be **VLAN-aware**, and the physical switch uplinks were configured as **802.1Q Trunks**, allowing multiple virtual networks to traverse a single physical cable.
 
 **VLAN Topology:**
-* **VLAN 10 (Production/VDI):** `192.168.10.0/24` — Dedicated to the 9 thin clients, VDI internet traffic, and general user access. Gateway routed through the edge router (`192.168.10.1`).
-* **VLAN 20 (Guest Wi-Fi):** Isolated network for untrusted wireless devices.
-* **VLAN 99 (Infrastructure Management):** `192.168.99.0/24` — A highly restricted, non-routable subnet dedicated exclusively to hypervisor and storage management. 
-  * *Host 1 IP:* `192.168.99.11`
-  * *Host 2 IP:* `192.168.99.12`
+
+  * **VLAN 10 (Production/VDI):** `192.168.10.0/24` — Dedicated to the 9 thin clients, VDI internet traffic, and general user access. Gateway routed through the edge router (`192.168.10.1`).
+  * **VLAN 20 (Guest Wi-Fi):** Isolated network for untrusted wireless devices.
+  * **VLAN 99 (Infrastructure Management):** `192.168.99.0/24` — A highly restricted, non-routable subnet dedicated exclusively to hypervisor and storage management.
+      * *Host 1 IP:* `192.168.99.11`
+      * *Host 2 IP:* `192.168.99.12`
 
 ### 2.2 Overcoming L3 Hardware Constraints with SDN
+
 **The Routing & DHCP Limitation:**
 While the edge router successfully acted as the gateway for VLAN 10 (`192.168.10.1`), it lacked the capability to serve DHCP scopes across multiple VLAN tags. Furthermore, the core physical switch was constrained to an **L2+ feature set**, meaning it lacked the integrated Layer 3 DHCP server functionality necessary to independently assign IPs to VLAN 99 and future subnets.
 
 **Software-Defined Networking (SDN) Implementation:**
-Instead of procuring expensive Layer 3 routing hardware, I engineered a software-defined solution. 
-* Utilized the **Proxmox Datacenter Manager (SDN capabilities)** to deploy a centralized **`dnsmasq`** service.
-* Configured `dnsmasq` to act as the authoritative DHCP server for VLAN 99 (and provisioned it for future VLAN expansions).
-* **Impact:** Successfully established automated IP provisioning for the secure management tier, completely bypassing the physical limitations of the L2+ hardware switch and keeping the infrastructure highly scalable and software-defined.
+Instead of procuring expensive Layer 3 routing hardware, I engineered a software-defined solution.
+
+  * Utilized the **Proxmox Datacenter Manager (SDN capabilities)** to deploy a centralized **`dnsmasq`** service.
+  * Configured `dnsmasq` to act as the authoritative DHCP server for VLAN 99 (and provisioned it for future VLAN expansions).
+  * **Impact:** Successfully established automated IP provisioning for the secure management tier, completely bypassing the physical limitations of the L2+ hardware switch and keeping the infrastructure highly scalable and software-defined.
 
 ### 2.3 Switch Hardening & Physical Port Security
+
 **Management Interface Isolation:**
-Following the establishment of the VLAN 99 SDN infrastructure, I locked down the physical switch hardware. The management interfaces (SSH and Web GUI) for the core switches were stripped from the default VLAN 1 and strictly bound to the VLAN 99 subnet. 
-* **Core Switch IP:** `192.168.99.1`
-* **Datacenter Manager (SDN) IP:** `192.168.99.3`
+Following the establishment of the VLAN 99 SDN infrastructure, I locked down the physical switch hardware. The management interfaces (SSH and Web GUI) for the core switches were stripped from the default VLAN 1 and strictly bound to the VLAN 99 subnet.
+
+  * **Core Switch IP:** `192.168.99.1`
+  * **Datacenter Manager (SDN) IP:** `192.168.99.3`
 
 **Physical Port Hardening (Blackhole VLAN):**
-To mitigate physical intrusion risks (such as a bad actor plugging an unauthorized device directly into an open wall port or switch), I implemented strict Layer 2 port security. 
-* Created **VLAN 30 (Unused/Dead VLAN)**—a completely isolated, non-routable network segment.
-* All unused physical switch ports were aggressively assigned to VLAN 30 and administratively disabled (`shutdown` state). This ensures that even if a physical connection is made, no network negotiation can occur.
+To mitigate physical intrusion risks (such as a bad actor plugging an unauthorized device directly into an open wall port or switch), I implemented strict Layer 2 port security.
 
----
+  * Created **VLAN 30 (Unused/Dead VLAN)**—a completely isolated, non-routable network segment.
+  * All unused physical switch ports were aggressively assigned to VLAN 30 and administratively disabled (`shutdown` state). This ensures that even if a physical connection is made, no network negotiation can occur.
+
+-----
+
 <a id="storage"></a>
+
 ## 💾 3. Storage Architecture & Network Integration
 
 ### 3.1 The Physical I/O Limitation
+
 **The Challenge:**
 In a fully virtualized "Quasi-VDI" architecture, end-users interface with the system via thin clients. Because the actual compute and operating systems live on remote Proxmox host servers, traditional physical I/O methods (such as inserting a USB flash drive to transfer files) are impossible. A robust, centralized storage solution was required to allow users to move large CAD and rendering files in and out of their virtual machines.
 
 ### 3.2 TrueNAS Deployment & Centralized Storage
+
 **The Solution:**
 To create a high-performance data backbone, I deployed a dedicated **TrueNAS** virtual appliance within the Proxmox environment. This isolated the storage management from the compute nodes and provided a scalable platform for enterprise file sharing.
 
 **Implementation & Configuration:**
-* **ZFS Storage Pool:** Configured the underlying storage utilizing the ZFS file system, ensuring high data integrity, protection against bit-rot, and efficient read/write caching for large rendering files.
-* **SMB (Server Message Block) Provisioning:** Engineered network shares utilizing the SMB protocol. This protocol was specifically selected for its native integration with the optimized Windows 11 VMs.
-* **Network Drive Mapping:** The SMB shares were broadcasted across the secure LAN and mapped as Network Drives within the guest VMs. 
+
+  * **ZFS Storage Pool:** Configured the underlying storage utilizing the ZFS file system, ensuring high data integrity, protection against bit-rot, and efficient read/write caching for large rendering files.
+  * **SMB (Server Message Block) Provisioning:** Engineered network shares utilizing the SMB protocol. This protocol was specifically selected for its native integration with the optimized Windows 11 VMs.
+  * **Network Drive Mapping:** The SMB shares were broadcasted across the secure LAN and mapped as Network Drives within the guest VMs.
 
 **The Impact:**
 This architecture completely bypassed the physical I/O limitations of the thin clients. Users can now seamlessly drag and drop massive project files across the network directly into their rendering VMs at full Gigabit LAN speeds, creating a frictionless, centralized storage ecosystem.
 
 ### 3.3 Storage Tiering & Network Access Control
+
 **The Permissions Challenge:**
-While the primary SMB shares successfully served the VLAN 10 production users, blending administrative files, ISOs, and user rendering data on the same virtualized storage appliance presented a data governance risk. 
+While the primary SMB shares successfully served the VLAN 10 production users, blending administrative files, ISOs, and user rendering data on the same virtualized storage appliance presented a data governance risk.
 
 **Isolated Management Storage Deployment:**
 To enforce strict Access Control Lists (ACLs) and network separation, I engineered a secondary, high-speed storage tier:
-* **Node 2 Deployment:** Provisioned a secondary storage VM on the second Proxmox host.
-* **NVMe Hardware Backing:** Passed through a dedicated 1TB M.2 SSD to guarantee high-throughput IOPS for administrative tasks.
-* **VLAN 99 Binding:** This secondary SMB share was bound exclusively to the VLAN 99 management subnet. It is completely invisible and inaccessible to the VLAN 10 production endpoints, providing a highly secure, air-gapped storage repository for infrastructure configurations and sensitive data.
 
----
+  * **Node 2 Deployment:** Provisioned a secondary storage VM on the second Proxmox host.
+  * **NVMe Hardware Backing:** Passed through a dedicated 1TB M.2 SSD to guarantee high-throughput IOPS for administrative tasks.
+  * **VLAN 99 Binding:** This secondary SMB share was bound exclusively to the VLAN 99 management subnet. It is completely invisible and inaccessible to the VLAN 10 production endpoints, providing a highly secure, air-gapped storage repository for infrastructure configurations and sensitive data.
+
+-----
+
 <a id="vdi"></a>
+
 ## 🖥️ 4. High-Performance "Quasi-VDI" Architecture
 
 ### 4.1 The Engineering Challenge
+
 Deploying a fully open-source Virtual Desktop Infrastructure (VDI) that remains stable under heavy graphical workloads (such as gaming and CAD rendering) is a significant industry challenge. Standard connection brokers often introduce severe latency, drop connections, or lack robust GPU-passthrough support for demanding Windows environments.
 
 To solve this, I architected a custom "Quasi-VDI" environment utilizing Proxmox VE. This architecture prioritizes raw stability, graphics performance, and resource efficiency over centralized login convenience by utilizing direct host-OS authentication.
 
 **Hardware Topology:**
-* **Host Nodes:** 2 high-compute Proxmox servers equipped with 4 high-performance GPUs.
-* **Endpoints (Thin Clients):** 9 Ultra-Small Form Factor (USFF) desktop PCs with low baseline specifications.
+
+  * **Host Nodes:** 2 high-compute Proxmox servers equipped with 4 high-performance GPUs.
+  * **Endpoints (Thin Clients):** 9 Ultra-Small Form Factor (USFF) desktop PCs with low baseline specifications.
 
 ### 4.2 Protocol Selection & Troubleshooting Analysis
+
 To connect the 9 thin clients to the resource pools, multiple streaming protocols were heavily tested and evaluated against our high-performance requirement:
 
-* **Iteration 1: SPICE Protocol (via PVE-VDIClient)**
-  * *Pros:* Excellent native Proxmox integration and seamless VM authentication. Very stable on Linux guests.
-  * *Cons:* Highly unstable when handling demanding, GPU-accelerated processes on Windows VMs. The protocol could not maintain a playable/renderable framerate under heavy load.
-* **Iteration 2: Microsoft RDP (Remote Desktop Protocol)**
-  * *Pros:* Vastly improved stability over SPICE. Connection drops and freezing were eliminated.
-  * *Cons:* Windows 11 enforces a hardcoded 30 FPS lock on native RDP connections. Despite registry modifications and group policy edits, the WDDM graphics driver limitations rendered it unacceptable for CAD and gaming workloads.
-* **Final Implementation: Sunshine & Moonlight Streaming**
-  * *Result:* Deployed the open-source **Sunshine** streaming host on the Proxmox VMs, paired with **Moonlight** clients on the 9 USFF endpoints. 
-  * *Impact:* Successfully bypassed the Windows 11 30 FPS lock. This protocol leverages direct hardware encoding/decoding, delivering ultra-low latency, 60+ FPS streaming perfectly suited for heavy rendering and gaming, while seamlessly pooling the resources of the 2 master servers.
+  * **Iteration 1: SPICE Protocol (via PVE-VDIClient)**
+      * *Pros:* Excellent native Proxmox integration and seamless VM authentication. Very stable on Linux guests.
+      * *Cons:* Highly unstable when handling demanding, GPU-accelerated processes on Windows VMs. The protocol could not maintain a playable/renderable framerate under heavy load.
+  * **Iteration 2: Microsoft RDP (Remote Desktop Protocol)**
+      * *Pros:* Vastly improved stability over SPICE. Connection drops and freezing were eliminated.
+      * *Cons:* Windows 11 enforces a hardcoded 30 FPS lock on native RDP connections. Despite registry modifications and group policy edits, the WDDM graphics driver limitations rendered it unacceptable for CAD and gaming workloads.
+  * **Final Implementation: Sunshine & Moonlight Streaming**
+      * *Result:* Deployed the open-source **Sunshine** streaming host on the Proxmox VMs, paired with **Moonlight** clients on the 9 USFF endpoints.
+      * *Impact:* Successfully bypassed the Windows 11 30 FPS lock. This protocol leverages direct hardware encoding/decoding, delivering ultra-low latency, 60+ FPS streaming perfectly suited for heavy rendering and gaming, while seamlessly pooling the resources of the 2 master servers.
 
-### 4.3 OS Optimization & Telemetry Hardening
+### 4.3 Service Persistence & Daemonization
+
+**The Reliability Challenge:**
+Sunshine streaming requires an active host service to capture the display buffer. By default, Sunshine operates in the user space, meaning it only initializes *after* a user manually logs into the Windows/Debian GUI. In a headless server environment, relying on manual physical logins defeats the purpose of an automated VDI.
+
+**Implementation (Background Daemonization):**
+To ensure the VDI endpoints were instantly accessible upon boot without manual intervention, I configured Sunshine as a persistent background service.
+
+  * Configured auto-login for a restricted local VDI user profile, allowing the Virtual Display Driver to initialize the desktop environment automatically upon boot.
+  * Engineered a custom scheduled task/systemd unit to hook the Sunshine daemon directly into the initialized desktop session on startup.
+  * **Impact:** The thin clients can connect to the heavy rendering VMs immediately after a hypervisor reboot, achieving true zero-touch infrastructure persistence.
+
+### 4.4 OS Optimization & Telemetry Hardening
+
 **The Resource Overhead Challenge:**
-Standard Windows 11 deployments include significant consumer-level bloatware, background telemetry, and scheduled tasks. In a virtualized environment, this inherent OS overhead severely degrades VM density and consumes critical CPU/RAM resources that must be preserved for the CAD and gaming workloads. 
+Standard Windows 11 deployments include significant consumer-level bloatware, background telemetry, and scheduled tasks. In a virtualized environment, this inherent OS overhead severely degrades VM density and consumes critical CPU/RAM resources that must be preserved for the CAD and gaming workloads.
 
 **Implementation (Base Image & Scripting):**
 To maximize resource efficiency and guarantee that 99% of compute power was dedicated to the primary applications, I engineered a highly optimized, stripped-down Windows environment for the virtual machines.
-* **Lightweight Base OS:** Deployed **Tiny11** as the baseline operating system. This drastically reduced the default storage footprint and idle RAM consumption by bypassing standard Windows 11 hardware checks and stripping out native bloatware prior to installation.
-* **Automated Debloating:** Utilized the **Chris Titus Tech (CTT) Windows Utility** and **Winhance** scripts post-installation to systematically remove residual consumer applications, Cortana, and unnecessary default AppX packages.
-* **Telemetry Hardening & Privacy:** Standard Windows telemetry acts as embedded spyware, constantly phoning home and eating network/CPU bandwidth. To mitigate this, I executed targeted **Registry (Regedit)** modifications to disable background data collection. Finally, applied **O&O ShutUp10++** to enforce strict system-level privacy policies, disabling cloud syncs and preventing unwanted background updates from disrupting rendering sessions.
+
+  * **Lightweight Base OS:** Deployed **Tiny11** as the baseline operating system. This drastically reduced the default storage footprint and idle RAM consumption by bypassing standard Windows 11 hardware checks and stripping out native bloatware prior to installation.
+  * **Automated Debloating:** Utilized the **Chris Titus Tech (CTT) Windows Utility** and **Winhance** scripts post-installation to systematically remove residual consumer applications, Cortana, and unnecessary default AppX packages.
+  * **Telemetry Hardening & Privacy:** Standard Windows telemetry acts as embedded spyware, constantly phoning home and eating network/CPU bandwidth. To mitigate this, I executed targeted **Registry (Regedit)** modifications to disable background data collection. Finally, applied **O\&O ShutUp10++** to enforce strict system-level privacy policies, disabling cloud syncs and preventing unwanted background updates from disrupting rendering sessions.
 
 **The Impact:**
 By meticulously hardening the OS, idle CPU utilization was reduced to near-zero, and baseline RAM consumption was cut by over 50%. This optimization was critical in allowing the 2 centralized Proxmox hosts to comfortably serve 9 high-performance VMs simultaneously without bottlenecking.
 
----
+-----
+
 <a id="voip"></a>
+
 ## 📞 5. Unified Communications (VoIP Infrastructure)
 
 ### 5.1 Secure PBX Deployment & SIP Provisioning
+
 **The Challenge:**
-Deploying IP telephony across a local area network often exposes the PBX (Private Branch Exchange) server to unnecessary broadcast traffic and potential internal threats if left on the default user data VLAN. 
+Deploying IP telephony across a local area network often exposes the PBX (Private Branch Exchange) server to unnecessary broadcast traffic and potential internal threats if left on the default user data VLAN.
 
 **The Solution (NAT & VLAN Isolation):**
 To secure the voice traffic and manage Quality of Service (QoS), I deployed a physical **CooVox T-100S IP PBX** appliance utilizing a strict NAT boundary architecture.
 
 **Network Topology & Configuration:**
-* **PBX WAN/Uplink:** Configured statically on the secure management tier at `192.168.99.20` (VLAN 99). This isolates the PBX management interface from standard users.
-* **PBX LAN/Voice Subnet:** The appliance was configured to operate as a NAT router for the downstream IP phones, distributing IPs in an isolated `172.16.0.0/24` subnet. 
-* **SIP Provisioning:** Manually generated and assigned static SIP extensions to the physical IP phones across the LAN. Because of the NAT architecture, the phones securely register back to the PBX without their internal `172.16.x.x` traffic bleeding into the main data VLANs.
 
----
+  * **PBX WAN/Uplink:** Configured statically on the secure management tier at `192.168.99.20` (VLAN 99). This isolates the PBX management interface from standard users.
+  * **PBX LAN/Voice Subnet:** The appliance was configured to operate as a NAT router for the downstream IP phones, distributing IPs in an isolated `172.16.0.0/24` subnet.
+  * **SIP Provisioning:** Manually generated and assigned static SIP extensions to the physical IP phones across the LAN. Because of the NAT architecture, the phones securely register back to the PBX without their internal `172.16.x.x` traffic bleeding into the main data VLANs.
+
+-----
+
 <a id="surveillance"></a>
+
 ## 📹 6. Surveillance Infrastructure (NVR & IP Cameras)
 
 ### 6.1 IoT Air-Gapping & Camera Isolation
+
 **The Security Challenge:**
 IP cameras are notoriously vulnerable to exploits and unauthorized broadcast scanning. Plugging IP cameras directly into a standard LAN or giving them internet access is a major security risk in any enterprise environment.
 
 **The Solution (Hardware-Level Air-Gapping):**
-I deployed a **Dahua NVR (Network Video Recorder)** specifically configured to act as a security gateway between the cameras and the rest of the infrastructure. 
+I deployed a **Dahua NVR (Network Video Recorder)** specifically configured to act as a security gateway between the cameras and the rest of the infrastructure.
 
 **Network Topology & Configuration:**
-* **NVR WAN/Uplink:** Bound exclusively to the Management VLAN (`192.168.99.10`). This ensures that only administrators on the secure subnet can access the video feeds or the NVR web interface.
-* **Camera LAN (Internal NAT):** The IP cameras were physically patched into the NVR's downstream switch ports. The NVR was configured to hand out a deeply isolated, non-routable `10.0.0.0/24` subnet (Gateway: `10.0.0.1`) to the cameras. 
+
+  * **NVR WAN/Uplink:** Bound exclusively to the Management VLAN (`192.168.99.10`). This ensures that only administrators on the secure subnet can access the video feeds or the NVR web interface.
+  * **Camera LAN (Internal NAT):** The IP cameras were physically patched into the NVR's downstream switch ports. The NVR was configured to hand out a deeply isolated, non-routable `10.0.0.0/24` subnet (Gateway: `10.0.0.1`) to the cameras.
 
 **The Impact:**
 This "Double-NAT" hardware configuration ensures that the cameras have zero direct access to the internet and zero access to the user VLANs. They exist in a completely air-gapped subnet managed solely by the Dahua NVR, ensuring total containment of the surveillance traffic.
 
+```
+```
