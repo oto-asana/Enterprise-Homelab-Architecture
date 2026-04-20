@@ -42,7 +42,7 @@ iface nic0 inet manual
 # VLAN-Aware Linux Bridge
 auto vmbr0
 iface vmbr0 inet static
-    address 192.168.99.12/16   # Incremented IP for Host 2
+    address 192.168.99.12/16
     gateway 192.168.99.1
     bridge-ports nic0
     bridge-stp off
