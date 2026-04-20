@@ -11,12 +11,12 @@ An intensive enterprise infrastructure simulation designed to demonstrate advanc
 ---
 
 ## 📑 Table of Contents
-1. [Hypervisor Environment (Proxmox VE)](#1-hypervisor-environment-proxmox-ve)
-2. [Network Segmentation & Security](#2-network-segmentation--security)
-3. [Storage Architecture & Network Integration](#3-storage-architecture--network-integration)
-4. [High-Performance "Quasi-VDI" Architecture](#4-high-performance-quasi-vdi-architecture)
-5. [Unified Communications (VoIP Infrastructure)](#5-unified-communications-voip-infrastructure)
-6. [Surveillance Infrastructure (NVR & IP Cameras)](#6-surveillance-infrastructure-nvr--ip-cameras)
+1. [Hypervisor Environment (Proxmox VE)](#hypervisor)
+2. [Network Segmentation & Security](#network)
+3. [Storage Architecture & Network Integration](#storage)
+4. [High-Performance "Quasi-VDI" Architecture](#vdi)
+5. [Unified Communications (VoIP Infrastructure)](#voip)
+6. [Surveillance Infrastructure (NVR & IP Cameras)](#surveillance)
 
 ---
 
